@@ -1,6 +1,6 @@
 --Previous: dev.lua
 
----@alias OSThreadState "rest" | "exit" | "error" | "poll" | "+listener" | "bg" | "transmit" | "transmit_yield" | "recieve" | ""
+---@alias OSThreadState "rest" | "exit" | "error" | "poll" | "+listener" | "bg" | "transmit" | "transmit_yield" | "recieve" | "unstarted" | ""
 ---@alias PID integer
 
 ---@class OSThread
@@ -11,6 +11,22 @@
 ---  @field thr thread Underlying lua thread.
 ---  @field messages any[] Messages received asynchronously from other threads.
 ---  @field listens (fun(...):boolean?)[] Listeners placed by thread.listen_event
+---  @field info string
+---  
+---  @field begin fun(self: OSThread) Begins a thread if it hasn't started yet.
+
+local thread_mt = {
+	__index={
+		---@param self OSThread
+		begin=function(self)
+			if self.state == "unstarted" then
+				self.state = ""
+				osint.resume(self.thr)
+			end
+			return self
+		end
+	}
+}
 
 do
 	local thread = {}
@@ -27,7 +43,7 @@ do
 						target.state = ""
 						osint.resume(target.thr)
 					elseif target.state == "exit" then
-						osctl.log("exit #"..pid)
+						osctl.log(string.format("#%s (%s) exiting...", pid, target.info))
 						osint.threadpool[pid] = nil
 						-- coroutine.close(target.thr)
 					elseif target.state == "error" then
@@ -58,10 +74,10 @@ do
 					end
 				end
 				if osint.utils.contains_k(target.listens, "*") then
-					target.listens["*"](ev)
+					target.listens["*"](table.unpack(ev))
 				end
 				if osint.utils.contains_k(target.listens, ev[1]) then
-					target.listens[ev[1]](ev)
+					target.listens[ev[1]](table.unpack(ev))
 				end
 			end
 		end
@@ -146,7 +162,7 @@ do
 		osint.yield()
 	end
 	
-	--- Ends this thread's foreground activities; that is, only listeners and such will fire.
+	--- Ends this thread's foreground activities. Listeners will fire and children will keep running.
 	function thread.background()
 		local current_pid, current_thread = thread.current_PID()
 		-- Using "bg" state is better than infinitely calling rest because rest is taxing to the kernel.
@@ -158,11 +174,15 @@ do
 	
 	--- Creates a new thread, returning its PID.
 	---@param code function Code to run in another thread
-	---@return integer PID, OSThread thread
-	function thread.start(code)
+	---@param info? string Info about a thread, usually a name
+	---@return OSThread thread
+	function thread.start(code, info)
+		if info == nil then
+			info = "unknown"
+		end
 		local pid = osint.next_pid
 		osint.next_pid = osint.next_pid + 1
-		osint.threadpool[pid] = {
+		osint.threadpool[pid] = setmetatable({
 			thr = coroutine.create(function()
 				local success, result = xpcall(code, debug.traceback)
 				if success then
@@ -179,18 +199,20 @@ do
 				end
 			end),
 			listens = {},
-			state = "",
+			state = "unstarted",
 			cmdInfo = {},
 			messages = {},
 			children = {},
-			parent = 0
-		}
+			parent = 0,
+			pid = pid,
+			info = info,
+		}, thread_mt)
 		local current_process_pid, current_process = thread.current_PID()
 		if current_process_pid ~= 0 and current_process then
 			table.insert(current_process.children,pid)
 			osint.threadpool[pid].parent = current_process_pid
 		end
-		return pid, osint.threadpool[pid]
+		return osint.threadpool[pid]
 	end
 	
 	---@diagnostic disable-next-line: duplicate-set-field

@@ -5,6 +5,9 @@ var dir = "os"
 const FLOPPY_CAPACITY = 524_288
 const FILE_SIZE = 500_000 //Leave space for skinnyfs unpacker.
 
+/**
+ * @type { [string]: string }
+ */
 var filedata = {}
 
 function recurse(fspath, skpath, depth) {
@@ -17,16 +20,21 @@ function recurse(fspath, skpath, depth) {
 		skfilepath = skfilepath.replace(/^\/(.*)$/,"$1")
 		var stat = fs.statSync(filepath)
 		if(stat.isDirectory() && depth < 16) {
-			recurse(filepath, `${skpath}/${skfilepath}`, depth+1)
+			recurse(filepath, skfilepath, depth+1)
 		} else {
 			filedata[skfilepath] = fs.readFileSync(filepath)
 			console.log(`Data "${filepath}" -> "${skfilepath}"`)
 		}
 	}
+	if(files_in_dir.length == 0) {
+		filedata[`${skpath}/dir.tag`] = "@"
+	}
 }
+
 
 recurse(dir, "");
 console.log("File path tree loaded")
+filedata = Object.fromEntries(Object.entries(filedata).sort(([k1,v1],[k2,v2])=>v2.length - v1.length)) //Sort by file length, greatest to least
 
 var tree_size = 0
 for(filepath in filedata) {
@@ -53,8 +61,8 @@ for(filepath in filedata) {
 	
 	var tree_entry_length = 10+filepath.length
 	tree.writeUInt8(tree_entry_length, tree_addr)
-	tree.writeUInt32LE(data_addr+tree_size+1, tree_addr+1)
-	tree.writeUInt32LE(data_addr+tree_size+block.length-1, tree_addr+5)
+	tree.writeUInt32LE(data_addr+tree_size, tree_addr+1)
+	tree.writeUInt32LE(block.length, tree_addr+5)
 	tree.write(filepath, tree_addr+9, "ascii")
 	tree.writeUint8(0, tree_addr+9+filepath.length)
 	tree_addr += tree_entry_length
@@ -72,6 +80,7 @@ for(let i = output.length-1; i > 0; i--) {
 		break
 	}
 }
+end_byte = Math.max(end_byte, tree_size)
 var file_output = output.subarray(0, end_byte)
 fs.writeFileSync("skinny.fs", file_output)
 fs.copyFileSync("skinny.fs", "floppy/skinny.fs")

@@ -14,16 +14,21 @@ do
 	_G.osint = osint
 	
 	local boot_fs = component.proxy(computer.getBootAddress())
+	local file = nil
 	---@cast boot_fs FilesystemProxy
-	local file = boot_fs.open("log.txt", "w")
-	boot_fs.write(file,"OS starting up")
+	if not boot_fs.isReadOnly() then
+		file = boot_fs.open("logos.log", "w")
+		boot_fs.write(file,"OS log file beginning")
+	end
 	
 	osint.boot_fs = boot_fs
 	
 	function osctl.log(...)
-		boot_fs.write(file, string.format("(%s) %s", computer.uptime(), table.concat({...}," ")))
-		local addr = component.list("ocelot", true)()
-		local success = pcall(component.invoke,addr,"log",...)
+		if file ~= nil and not boot_fs.isReadOnly() then
+			boot_fs.write(file, string.format("(%s) %s", computer.uptime(), table.concat({...}," ")))
+		end
+		local addr = hardware.list("ocelot", true)()
+		local success = pcall(hardware.invoke,addr,"log",...)
 		return success
 	end
 	
@@ -31,11 +36,14 @@ do
 	
 	_G.void = {
 		__metatable="void",
+		__name= "void",
+		
 		__index=function(key)
 			return nil
 		end,
 		__newindex=function(...) end,
 		__eq=function(self, other)
+			if other == false then return true end
 			if getmetatable(other) == "void" then
 				return true
 			end
@@ -53,7 +61,7 @@ do
 			if code == nil then
 				error("Failed to read "..filename)
 			end
-			local exe, err = load(code, filename, mode, env)
+			local exe, err = load(code, "="..filename, mode, env)
 			if not exe or err then
 				error(err)
 			end

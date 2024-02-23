@@ -35,11 +35,13 @@
 ---  @field _HANDLE FSHandle Provider-specific handle for this file
 ---  @field _GLOBAL_PATH string Path to opened file
 ---  @field _PROVIDER_PATH string Provider-specific path to opened file
+---  
 ---  @field read fun(self, count:integer): string|nil Reads up to the specified amount of data from an open file. Returns nil when EOF is reached.
 ---  @field write fun(self,value:string): boolean Writes the specified data to an open file descriptor with the specified handle.
 ---  @field seek fun(self,whence:string,offset:number): number Seeks in an open file descriptor with the specified handle. Returns the new pointer position.
 ---  @field close fun(self) Closes an open file descriptor with the specified handle.
 ---  @field readAll fun(self): string|nil Reads the entire file and closes it. Useful inline.
+---  @field readRaw fun(self, count:integer): string|nil Reads up to the specified amount (like read), but does not auto-buffer.
 
 local file_mt = {
 	__index={
@@ -47,12 +49,15 @@ local file_mt = {
 		---@param count number
 		read= function(self, count)
 			local out = ""
-			local block = self._PROVIDER.read(self._HANDLE, count)
-			if block == nil then return out end
-			repeat
-				out = out .. block
-				block = self._PROVIDER.read(self._HANDLE, count)
-			until block == nil
+			local bytesRead = 0
+			while bytesRead < count do
+				local result = self:readRaw(count-bytesRead)
+				if result == nil then
+					break
+				end
+				bytesRead = bytesRead + #result
+				out = out .. result
+			end
 			return out
 		end,
 		---@param self File
@@ -80,6 +85,9 @@ local file_mt = {
 			local data = self:read(math.huge)
 			self:close()
 			return data
+		end,
+		readRaw= function(self, count)
+			return self._PROVIDER.read(self._HANDLE, count)
 		end
 	}
 }
@@ -87,7 +95,6 @@ local file_mt = {
 do
 	local fs = {}
 	osctl.fs = {
-		fsProviders= {},
 		--- Returns a StdFSProvider for any component filesystem.
 		---@param addr ID
 		---@return StdFSProvider
@@ -108,12 +115,15 @@ do
 			return output
 		end
 	}
-		
+	
+	---@type FSProvider[]
+	osint.fsProviders = {}
+	
 	--- Mounts any FSProvider at the specified path.
 	---@param path string
 	---@param provider FSProvider
 	function osctl.fs.mount(path, provider)
-		osctl.fs.fsProviders[fs.canonicalize(path)] = provider
+		osint.fsProviders[fs.canonicalize(path)] = provider
 	end
 	
 	--- Returns a list of segments of a path.
@@ -139,7 +149,9 @@ do
 		local paths = {...}
 		local segments = {}
 		for i,path in ipairs(paths) do
-			segments = {table.unpack(segments), table.unpack(fs.segments(path))}
+			for j,part in ipairs(fs.segments(path)) do
+				table.insert(segments, part)
+			end
 		end
 		return fs.joinSegments(table.unpack(segments))
 	end
@@ -147,7 +159,7 @@ do
 	---@param path string
 	---@return string
 	function fs.canonicalize(path)
-		return fs.join(table.unpack(fs.segments(path)))
+		return fs.joinSegments(table.unpack(fs.segments(path)))
 	end
 	
 	---@param path string
@@ -161,40 +173,29 @@ do
 		local segments = fs.segments(path) --NOTE this is currently redundant.
 		
 		if #segments == 0 then
-			if osint.utils.contains_k(osctl.fs.fsProviders, "/") then
-				return osctl.fs.fsProviders["/"], path
+			if osint.utils.contains_k(osint.fsProviders, "/") then
+				return osint.fsProviders["/"], path
 			else
 				if throw == true then
-					error(string.format("Short-circuit provider not found / nothing mounted to \"/\".\nProviders:\n%s",table.concat(osint.utils.keys(osctl.fs.fsProviders),"\n")))
+					error(string.format("Short-circuit provider not found / nothing mounted to \"/\".\nProviders:\n%s",table.concat(osint.utils.keys(osint.fsProviders),"\n")))
 				end
 				return nil, "not found"
 			end
 		end
 		
-		for i = #segments, 1, -1 do
+		for i = #segments, 0, -1 do
 			local provider_path = fs.joinSegments(table.unpack(segments, 1, i))
-			local found, provider = osint.utils.contains_k(osctl.fs.fsProviders, provider_path)
+			local provided_path = fs.joinSegments(table.unpack(segments, i+1))
+			local found, provider = osint.utils.contains_k(osint.fsProviders, provider_path)
 			if found then
-				return provider,fs.joinSegments(table.unpack(segments, i+1))
+				return provider,provided_path
 			end
 		end
 		if throw == true then
-			error(string.format("No FS provider for %s\nProviders:\n%s", path, table.concat(osint.utils.keys(osctl.fs.fsProviders),"\n")))
+			error(string.format("No FS provider for %s\nProviders:\n%s", path, table.concat(osint.utils.keys(osint.fsProviders),"\n")))
 		end
 		return nil,"not found"
 	end
-	
-	--Testing.
-	
-	osctl.fs.fsProviders = {
-		["/"]= {},
-		["/mnt/aaaaaaaa"]= {}
-	}
-	locateProvider("/",true)
-	locateProvider("/mnt",true)
-	locateProvider("/mnt/aaaaaa",true)
-	locateProvider("/mnt/aaaaaa/test",true)
-	osctl.fs.fsProviders = {}
 	
 	--- Opens a file and returns a proxy to its further methods.
 	---@param path string
@@ -226,15 +227,15 @@ do
 	end
 	
 	function osctl.fs.loadMountFile()
-		local old_providers = osctl.fs.fsProviders
-		osctl.fs.fsProviders = {}
+		local old_providers = osint.fsProviders
+		osint.fsProviders = {}
 		osctl.fs.mount("/", osctl.fs.physicalFS(osint.boot_fs.address))
 		local script = loadfile("mount.lua") --[[@as function]] --infallible, but vscode don't understand my override of loadfile.
 		
-		osctl.fs.fsProviders = {}
+		osint.fsProviders = {}
 		local success, message = xpcall(script, debug.traceback)
 		if not success then
-			osctl.fs.fsProviders = old_providers
+			osint.fsProviders = old_providers
 			error(message)
 		end
 	end

@@ -1,13 +1,16 @@
 ---@meta
----@diagnostic disable: lowercase-global, missing-return
+---@diagnostic disable: lowercase-global, missing-return, duplicate-doc-alias, missing-fields
 
 ---Because all strings pass through Java at some point it can be useful to handle them with Unicode support (since Java's internal string representation is UTF-8 encoded). In particular, screens display UTF-8 strings, meaning the related GPU functions expect UTF-8 strings. Also, keyboard input will generally be UTF-8 encoded, especially the clipboard.
 ---***
 ---However, keep in mind that while wide characters can be displayed, input and output of those is not fully supported in OpenOS's software (i.e. the shell, edit and Lua interpreter).
+-- -@type UnicodeAPI
 unicode = {}
 ---This API mainly provides information about the computer a Lua state is running on, such as its address and uptime. It also contains functions for user management. This could belong to the os table, but in order to keep that “clean” it's in its own API.
+---@type ComputerAPI
 computer = {}
 ---The component API is used to access and interact with components available to a computer. Also see the page on component interaction.
+---@type ComponentAPI
 component = {}
 
 --- A table that can be iterated over without calling ipairs
@@ -322,45 +325,16 @@ component = {}
 
 --#region Computer
 
----The component address of this computer.
----@return ID
-function computer.address() return "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" end
-
----The component address of the computer's temporary file system (if any), used for mounting it on startup.
----@return ID|nil
-function computer.tmpAddress() return "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" end
-
----The amount of memory currently unused, in bytes. If this gets close to zero your computer will probably soon crash with an out of memory error. Note that for OpenOS, it is highly recommended to at least have 1x tier 1.5 RAM stick or more. The os will boot on a single tier 1 ram stick, but quickly and easily run out of memory.
----@return integer
-function computer.freeMemory()
-end
-
----The total amount of memory installed in this computer, in bytes.
----@return integer
-function computer.totalMemory()
-end
-
----The amount of energy currently available in the network the computer is in. For a robot this is the robot's own energy / fuel level.
----@return number
-function computer.energy()
-end
-
----The maximum amount of energy that can be stored in the network the computer is in. For a robot this is the size of the robot's internal buffer (what you see in the robot's GUI).
----@return number
-function computer.maxEnergy()
-end
-
----The time in real world seconds this computer has been running, measured based on the world time that passed since it was started - meaning this will not increase while the game is paused, for example.
----@return number
-function computer.uptime()
-end
-
----Shuts down the computer. Optionally reboots the computer, if reboot is true, i.e. shuts down, then starts it again automatically. This function never returns. This example will reboot the computer if it has been running for at least 300 seconds(5 minutes)
----@param reboot boolean
-function computer.shutdown(reboot)
-	while true do
-	end
-end
+---This API mainly provides information about the computer a Lua state is running on, such as its address and uptime. It also contains functions for user management. This could belong to the os table, but in order to keep that “clean” it's in its own API.
+---@class ComputerAPI
+---  @field address     fun()                : ID      The component address of this computer.
+---  @field tmpAddress  fun()                : ID|nil  The component address of the computer's temporary file system (if any), used for mounting it on startup.
+---  @field freeMemory  fun()                : integer The amount of memory currently unused, in bytes. If this gets close to zero your computer will probably soon crash with an out of memory error. Note that for OpenOS, it is highly recommended to at least have 1x tier 1.5 RAM stick or more. The os [openos] will boot on a single tier 1 ram stick, but quickly and easily run out of memory.
+---  @field totalMemory fun()                : integer The total amount of memory installed in this computer, in bytes.
+---  @field energy      fun()                : number  The amount of energy currently available in the network the computer is in. For a robot this is the robot's own energy / fuel level.
+---  @field maxEnergy   fun()                : number  The maximum amount of energy that can be stored in the network the computer is in. For a robot this is the size of the robot's internal buffer (what you see in the robot's GUI).
+---  @field uptime      fun()                : number  The time in real world seconds this computer has been running, measured based on the world time that passed since it was started - meaning this will not increase while the game is paused, for example.
+---  @field shutdown    fun(reboot?: boolean)          Shuts down the computer. Optionally reboots the computer, if reboot is true, i.e. shuts down, then starts it again automatically. This function never returns. This example will reboot the computer if it has been running for at least 300 seconds(5 minutes)
 
 ---Pushes a new signal into the queue. Signals are processed in a FIFO order. The signal has to at least have a name. Arguments to pass along with it are optional. Note that the types supported as signal parameters are limited to the basic types nil, boolean, number, string, and tables. Yes tables are supported (keep reading). Threads and functions are not supported.
 --- ***
@@ -381,8 +355,7 @@ end
 ---if `frequency` is a number it value must be between 20 and 2000.
 --- ***
 ---Causes the computer to produce a beep sound at `frequency` Hz for `duration` seconds. This method is overloaded taking a single string parameter as a pattern of dots `.` and dashes `-` for short and long beeps respectively.
----@param frequency number
----@param duration number
+---@overload fun(frequency?: number, duration?: number)
 ---@overload fun(sequence: string) Takes a single string paramter as a sequence of dots `.` and dashes `-` for short and long beeps respectively.
 function computer.beep(frequency, duration)
 end
